@@ -7,6 +7,7 @@ from btc_tool.engine.staking import (
     summarize_transaction_types,
 )
 from btc_tool.io.csv_loader import load_trades_from_csv
+from btc_tool.io.price_loader import PriceLoader
 from btc_tool.reporting.export_audit_csv import export_audit_csv
 from btc_tool.reporting.export_open_lots_csv import export_open_lots_csv
 from btc_tool.reporting.export_summary_txt import export_summary_txt
@@ -19,7 +20,18 @@ def main():
     parser.add_argument(
         "--file",
         default="data/coinbase.csv",
-        help="Path to Coinbase CSV file",
+        help="Path to Coinbase/Uphold/Revolut CSV file",
+    )
+
+    parser.add_argument(
+        "--prices",
+        nargs="+",
+        help="Price CSV files (CoinMarketCap format) for accurate pricing",
+    )
+
+    parser.add_argument(
+        "--price-dir",
+        help="Directory containing all price CSV files",
     )
 
     parser.add_argument(
@@ -31,8 +43,28 @@ def main():
     args = parser.parse_args()
     csv_path = args.file
 
+    # Load price data if provided
+    price_loader = None
+    if args.price_dir or args.prices:
+        price_loader = PriceLoader()
+        
+        if args.price_dir:
+            print(f"Loading price data from directory: {args.price_dir}")
+            price_loader.load_from_directory(args.price_dir)
+        
+        if args.prices:
+            for price_file in args.prices:
+                print(f"Loading price data from: {price_file}")
+                price_loader.load_from_csv(price_file)
+        
+        print(f"Loaded prices for assets: {', '.join(price_loader.assets())}")
+        for asset in price_loader.assets():
+            start_date, end_date = price_loader.price_range(asset)
+            print(f"  {asset}: {start_date} to {end_date}")
+        print()
+
     try:
-        trades, special_events, raw_rows = load_trades_from_csv(csv_path)
+        trades, special_events, raw_rows = load_trades_from_csv(csv_path, price_loader)
     except FileNotFoundError:
         print(f"Error: file not found: {csv_path}")
         return
