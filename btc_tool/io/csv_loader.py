@@ -291,7 +291,7 @@ def _load_uphold_csv(
     price_loader: Optional[PriceLoader] = None,
 ) -> Tuple[List[Trade], List[SpecialEvent], List[Dict]]:
     """
-    Load Uphold CSV format (semicolon-delimited).
+    Load Uphold CSV format (comma-delimited).
     
     Columns: Date,Destination,Destination Amount,Destination Currency,Fee Amount,Fee Currency,Id,
              Origin,Origin Amount,Origin Currency,Status,Type
@@ -387,7 +387,7 @@ def _load_uphold_csv(
                         )
                     )
         
-        elif tx_type in {"out", "transfer"}:
+        elif tx_type in {"out"}:
             # Outgoing transaction (withdrawal, transfer out)
             if origin_asset and origin_amount > 0:
                 price = 0.0
@@ -410,18 +410,19 @@ def _load_uphold_csv(
                 )
         
         elif tx_type == "transfer":
-            # Crypto-to-crypto transfer/swap
+            # Crypto-to-crypto transfer/swap (between your own cards)
             if origin_asset and dest_asset and origin_asset != dest_asset:
                 if origin_amount > 0 and dest_amount > 0:
-                    # Calculate implied price
+                    # Calculate implied price based on origin asset value
                     price = origin_amount / dest_amount if dest_amount > 0 else 0
                     
-                    # Try to override with price loader
+                    # Try to override with price loader for the origin asset
                     if price_loader and price_loader.has_asset(origin_asset):
                         loaded_price = price_loader.get_price(origin_asset, date)
                         if loaded_price is not None:
                             price = loaded_price
                     
+                    # Sell the origin asset
                     trades.append(
                         Trade(
                             date=date,
@@ -433,13 +434,21 @@ def _load_uphold_csv(
                         )
                     )
                     
+                    # Buy the destination asset
+                    # Try to get price for destination asset if available
+                    dest_price = price  # Default to origin asset price ratio
+                    if price_loader and price_loader.has_asset(dest_asset):
+                        loaded_price = price_loader.get_price(dest_asset, date)
+                        if loaded_price is not None:
+                            dest_price = loaded_price
+                    
                     trades.append(
                         Trade(
                             date=date,
                             asset=dest_asset,
                             type="buy",
                             amount=dest_amount,
-                            price=price,
+                            price=dest_price,
                             fee=0.0,
                         )
                     )
@@ -455,6 +464,24 @@ def _load_uphold_csv(
                             notes="",
                         )
                     )
+            elif origin_amount == 0 and dest_amount > 0 and dest_asset:
+                # Transfer with no origin (e.g., internal account funding)
+                price = 0.0
+                if price_loader and price_loader.has_asset(dest_asset):
+                    loaded_price = price_loader.get_price(dest_asset, date)
+                    if loaded_price is not None:
+                        price = loaded_price
+                
+                trades.append(
+                    Trade(
+                        date=date,
+                        asset=dest_asset,
+                        type="buy",
+                        amount=dest_amount,
+                        price=price,
+                        fee=0.0,
+                    )
+                )
 
     return trades, special_events, raw_rows
 
