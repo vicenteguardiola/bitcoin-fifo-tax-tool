@@ -207,7 +207,49 @@ def _load_coinbase_csv(
             trades.append(Trade(date=date, asset=to_asset, type="buy", amount=to_amount, price=buy_price, fee=0.0))
             special_events.append(SpecialEvent(date=date, asset=f"{from_asset}->{to_asset}", event_type="convert", amount=from_amount, price=sell_price, fee=fee, notes=notes))
             continue
+        if tx_type in {"receive"}:
+            # Recepción de crypto desde wallet externa — es un lote de compra FIFO
+            # al precio de mercado del día (o 0 si no hay precio disponible)
+            if amount > 0:
+                buy_price = price if price > 0 else 0.0
+                trades.append(
+                    Trade(
+                        date=date,
+                        asset=asset,
+                        type="buy",
+                        amount=amount,
+                        price=buy_price,
+                        fee=0.0,
+                    )
+                )
+                special_events.append(
+                    SpecialEvent(
+                        date=date,
+                        asset=asset,
+                        event_type="receive",
+                        amount=amount,
+                        price=buy_price,
+                        fee=0.0,
+                        notes=notes,
+                    )
+                )
+            continue
 
+        if tx_type in {"send"}:
+            # Envío a wallet externa — NO es venta imponible, solo SpecialEvent
+            special_events.append(
+                SpecialEvent(
+                    date=date,
+                    asset=asset,
+                    event_type="send",
+                    amount=amount,
+                    price=price,
+                    fee=fee,
+                    notes=notes,
+                )
+            )
+            continue
+            
         special_events.append(SpecialEvent(date=date, asset=asset or "UNKNOWN", event_type=tx_type, amount=amount, price=price, fee=fee, notes=notes))
 
     return trades, special_events, raw_rows
