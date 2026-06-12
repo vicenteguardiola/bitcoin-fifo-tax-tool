@@ -18,9 +18,15 @@ def main():
     parser = argparse.ArgumentParser(description="Bitcoin FIFO Tax Tool")
 
     parser.add_argument(
-        "--file",
-        default="data/coinbase.csv",
-        help="Path to Coinbase/Uphold/Revolut CSV file",
+        "--files",
+        nargs="+",
+        required=True,
+        metavar="CSV",
+        help=(
+            "One or more exchange CSV files to process "
+            "(Coinbase, Uphold, Revolut). "
+            "Example: --files data/coinbase.csv data/uphold.csv"
+        ),
     )
 
     parser.add_argument(
@@ -35,75 +41,103 @@ def main():
     )
 
     parser.add_argument(
+        "--skip-uphold-in",
+        action="store_true",
+        help=(
+            "Skip Uphold 'in' (deposit) transactions. Use this when you are also "
+            "loading the source exchange CSV (e.g. Coinbase) to avoid counting the "
+            "same crypto lot twice."
+        ),
+    )
+
+    parser.add_argument(
         "--no-export",
         action="store_true",
         help="Do not write output files",
     )
 
     args = parser.parse_args()
-    csv_path = args.file
 
-    # Load price data if provided
+    # ── Load historical price data ───────────────────────────────────────────
     price_loader = None
     if args.price_dir or args.prices:
         price_loader = PriceLoader()
-        
+
         if args.price_dir:
             print(f"Loading price data from directory: {args.price_dir}")
             price_loader.load_from_directory(args.price_dir)
-        
+
         if args.prices:
             for price_file in args.prices:
                 print(f"Loading price data from: {price_file}")
                 price_loader.load_from_csv(price_file)
-        
+
         print(f"Loaded prices for assets: {', '.join(price_loader.assets())}")
         for asset in price_loader.assets():
             start_date, end_date = price_loader.price_range(asset)
             print(f"  {asset}: {start_date} to {end_date}")
         print()
 
-    try:
-        trades, special_events, raw_rows = load_trades_from_csv(csv_path, price_loader)
-    except FileNotFoundError:
-        print(f"Error: file not found: {csv_path}")
-        return
-    except ValueError as e:
-        print(f"Error: {e}")
-        return
+    # ── Load and merge all exchange CSVs ─────────────────────────────────────
+    all_trades = []
+    all_special_events = []
+    all_raw_rows = []
 
-    raw_row_count = raw_rows if isinstance(raw_rows, int) else len(raw_rows)
+    for csv_path in args.files:
+        try:
+            trades, special_events, raw_rows = load_trades_from_csv(
+                csv_path,
+                price_loader,
+                skip_uphold_in=args.skip_uphold_in,
+            )
+        except FileNotFoundError:
+            print(f"Error: file not found: {csv_path}")
+            return
+        except ValueError as e:
+            print(f"Error loading {csv_path}: {e}")
+            return
 
-    print(f"Loaded trades from: {csv_path}")
-    print(f"Raw rows: {raw_row_count}")
-    print(f"Parsed Buy/Sell trades: {len(trades)}")
-    print(f"Special events found: {len(special_events)}")
-    if trades:
-        print(f"First parsed trade: {trades[0]}")
-    else:
-        print("No parsed trades found.")
-    print()
+        raw_row_count = raw_rows if isinstance(raw_rows, int) else len(raw_rows)
+        print(f"Loaded: {csv_path}")
+        print(f"  Raw rows       : {raw_row_count}")
+        print(f"  Buy/Sell trades: {len(trades)}")
+        print(f"  Special events : {len(special_events)}")
+        if trades:
+            print(f"  First trade    : {trades[0]}")
+        print()
 
-    total_profit, matches, open_lots = calculate_fifo(trades)
+        all_trades.extend(trades)
+        all_special_events.extend(special_events)
+        if isinstance(raw_rows, list):
+            all_raw_rows.extend(raw_rows)
+
+    # Sort all trades chronologically before FIFO
+    all_trades.sort(key=lambda t: t.date)
+
+    total_raw_count = len(all_raw_rows)
+    print(
+        f"Combined: {len(all_trades)} trades from "
+        f"{len(args.files)} file(s) — ready for FIFO\n"
+    )
+
+    # ── FIFO calculation ─────────────────────────────────────────────────────
+    total_profit, matches, open_lots = calculate_fifo(all_trades)
     tax_report = build_tax_report(matches)
-    special_summary = summarize_special_events(special_events)
-
-    if isinstance(raw_rows, int):
-        tx_type_summary = {}
-    else:
-        tx_type_summary = summarize_transaction_types(raw_rows)
+    special_summary = summarize_special_events(all_special_events)
+    tx_type_summary = summarize_transaction_types(all_raw_rows) if all_raw_rows else {}
 
     taxable_profit = sum(m.profit for m in matches if m.tax_status == "taxable")
     tax_free_profit = sum(m.profit for m in matches if m.tax_status == "tax_free")
 
+    # ── Report ───────────────────────────────────────────────────────────────
     lines = []
     lines.append("=" * 50)
     lines.append("BITCOIN TOOL - FIFO REPORT")
     lines.append("=" * 50)
     lines.append("")
-    lines.append(f"CSV Rows Total: {raw_row_count}")
-    lines.append(f"Processed Buy/Sell Trades: {len(trades)}")
-    lines.append(f"Special Events Found: {len(special_events)}")
+    lines.append(f"CSV Rows Total: {total_raw_count}")
+    lines.append(f"Processed Buy/Sell Trades: {len(all_trades)}")
+    lines.append(f"Special Events Found: {len(all_special_events)}")
     lines.append("")
     lines.append("TRANSACTION TYPES FOUND")
     lines.append("-" * 50)
