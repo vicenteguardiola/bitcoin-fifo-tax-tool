@@ -288,15 +288,16 @@ def _load_uphold_csv(
         # Covers both external deposits AND same-asset credits (origin==dest),
         # e.g. Brave Rewards BAT: origin=BAT 2.285 / dest=BAT 2.285.
         # In all cases the correct treatment is a BUY lot.
-        if tx_type == "in":
-            # Prefer dest_asset; fall back to origin_asset for same-asset rows
-            crypto_asset = (
-                dest_asset if (dest_asset and not _is_fiat(dest_asset))
-                else (origin_asset if (origin_asset and not _is_fiat(origin_asset)) else None)
-            )
-            crypto_amount = dest_amount if dest_amount > 0 else origin_amount
-
-            if not crypto_asset or crypto_amount <= 0:
+               if tx_type == "in":
+            # Destination Currency puede estar vacío en filas de staking/Brave Rewards.
+            # En ese caso usar Origin Currency/Amount como fallback.
+            if dest_asset and not _is_fiat(dest_asset) and dest_amount > 0:
+                crypto_asset = dest_asset
+                crypto_amount = dest_amount
+            elif origin_asset and not _is_fiat(origin_asset) and origin_amount > 0:
+                crypto_asset = origin_asset
+                crypto_amount = origin_amount
+            else:
                 continue
 
             if skip_uphold_in:
@@ -317,17 +318,18 @@ def _load_uphold_csv(
                     loaded_price = price_loader.get_price(crypto_asset, date)
                     if loaded_price is not None:
                         price = loaded_price
-                trades.append(Trade(date=date, asset=crypto_asset, type="buy", amount=crypto_amount, price=price, fee=0.0))
+                trades.append(Trade(date=date, asset=crypto_asset, type="buy",
+                                    amount=crypto_amount, price=price, fee=0.0))
 
         # ── "staking-reward" / "reward" ───────────────────────────────────────
-        elif tx_type in {"staking-reward", "reward"}:
-            crypto_asset = (
-                dest_asset if (dest_asset and not _is_fiat(dest_asset))
-                else (origin_asset if (origin_asset and not _is_fiat(origin_asset)) else None)
-            )
-            crypto_amount = dest_amount if dest_amount > 0 else origin_amount
-
-            if not crypto_asset or crypto_amount <= 0:
+               elif tx_type in {"staking-reward", "reward"}:
+            if dest_asset and not _is_fiat(dest_asset) and dest_amount > 0:
+                crypto_asset = dest_asset
+                crypto_amount = dest_amount
+            elif origin_asset and not _is_fiat(origin_asset) and origin_amount > 0:
+                crypto_asset = origin_asset
+                crypto_amount = origin_amount
+            else:
                 continue
 
             price = 0.0
@@ -335,9 +337,11 @@ def _load_uphold_csv(
                 loaded_price = price_loader.get_price(crypto_asset, date)
                 if loaded_price is not None:
                     price = loaded_price
-
-            trades.append(Trade(date=date, asset=crypto_asset, type="buy", amount=crypto_amount, price=price, fee=0.0))
-            special_events.append(SpecialEvent(date=date, asset=crypto_asset, event_type=tx_type, amount=crypto_amount, price=price, fee=0.0, notes=""))
+            trades.append(Trade(date=date, asset=crypto_asset, type="buy",
+                                amount=crypto_amount, price=price, fee=0.0))
+            special_events.append(SpecialEvent(date=date, asset=crypto_asset,
+                                               event_type=tx_type, amount=crypto_amount,
+                                               price=price, fee=0.0, notes=""))
 
         # ── "out": withdrawal to external wallet ─────────────────────────────
         # NOT a taxable disposal — SpecialEvent only, NEVER a SELL trade.
