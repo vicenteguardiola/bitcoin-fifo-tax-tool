@@ -288,7 +288,7 @@ def _load_uphold_csv(
         # Covers both external deposits AND same-asset credits (origin==dest),
         # e.g. Brave Rewards BAT: origin=BAT 2.285 / dest=BAT 2.285.
         # In all cases the correct treatment is a BUY lot.
-               if tx_type == "in":
+        if tx_type == "in":
             # Destination Currency puede estar vacío en filas de staking/Brave Rewards.
             # En ese caso usar Origin Currency/Amount como fallback.
             if dest_asset and not _is_fiat(dest_asset) and dest_amount > 0:
@@ -322,7 +322,7 @@ def _load_uphold_csv(
                                     amount=crypto_amount, price=price, fee=0.0))
 
         # ── "staking-reward" / "reward" ───────────────────────────────────────
-               elif tx_type in {"staking-reward", "reward"}:
+        elif tx_type in {"staking-reward", "reward"}:
             if dest_asset and not _is_fiat(dest_asset) and dest_amount > 0:
                 crypto_asset = dest_asset
                 crypto_amount = dest_amount
