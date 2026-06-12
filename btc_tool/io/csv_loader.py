@@ -21,6 +21,13 @@ FIAT_CURRENCIES = {
     "SEK", "NOK", "DKK", "PLN", "CZK", "HUF", "RON",
 }
 
+def _to_utc_naive(dt: datetime) -> datetime:
+    """Convierte cualquier datetime a UTC sin zona horaria (offset-naive).
+    Necesario para mezclar fechas de diferentes exchanges sin TypeError."""
+    if dt.tzinfo is not None:
+        from datetime import timezone
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 def _is_fiat(asset: str) -> bool:
     return asset.upper() in FIAT_CURRENCIES
@@ -266,6 +273,8 @@ def _load_uphold_csv(
             except ValueError:
                 continue
 
+        date = _to_utc_naive(date)
+
         origin_amount = _clean_amount(row.get("Origin Amount"))
         dest_amount = _clean_amount(row.get("Destination Amount"))
         fee_amount = _clean_amount(row.get("Fee Amount"))
@@ -463,6 +472,8 @@ def _load_revolut_csv(
                 date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
             except ValueError:
                 continue
+
+        date = _to_utc_naive(date)
 
         paid_out = _clean_amount(row.get("Paid Out"))
         paid_in = _clean_amount(row.get("Paid In"))
