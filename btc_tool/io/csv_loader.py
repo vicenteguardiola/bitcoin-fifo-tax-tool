@@ -151,7 +151,10 @@ def _load_coinbase_csv(
         tx_type = tx_type_raw.lower()
         date = _parse_timestamp(timestamp_raw)
 
-        amount = _clean_amount(row.get("Quantity Transacted"))
+        # Leer el valor raw para detectar el signo (Convert tiene fila negativa = origen)
+        quantity_raw = _safe_text(row.get("Quantity Transacted"))
+        amount = _clean_amount(quantity_raw)
+        is_negative = quantity_raw.startswith("-")
         price = _clean_money(row.get("Price at Transaction"))
         fee = _clean_money(row.get("Fees and/or Spread"))
         subtotal = _clean_money(row.get("Subtotal"))
@@ -187,6 +190,26 @@ def _load_coinbase_csv(
             continue
 
         if tx_type == "convert":
+            # Coinbase exporta los Convert en DOS filas:
+            #   fila 1: asset de origen con cantidad NEGATIVA  ← ignorar, es redundante
+            #   fila 2: asset de destino con cantidad POSITIVA ← procesar esta
+            # Si procesamos ambas obtenemos SELL+BUY duplicados.
+            if is_negative:
+                # Esta es la fila del asset vendido. La información completa
+                # ya está en la fila positiva (destino), así que la saltamos.
+                special_events.append(
+                    SpecialEvent(
+                        date=date,
+                        asset=asset or "UNKNOWN",
+                        event_type="convert_source_row",
+                        amount=amount,
+                        price=price,
+                        fee=fee,
+                        notes=notes,
+                    )
+                )
+                continue
+
             parsed = _parse_convert_from_notes(notes)
 
             if parsed is None:
