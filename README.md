@@ -1,178 +1,43 @@
-# Bitcoin FIFO Tax Tool
-
-Python CLI tool for parsing Coinbase CSV transaction exports and calculating
-cryptocurrency gains and losses using the **FIFO (First In, First Out)** method.
-
-The tool analyzes buy and sell transactions, matches trades using FIFO logic,
-and generates simple tax-relevant reports.
-
----
-
-## Overview
-
-This project provides a lightweight command-line tool to:
-
-* parse Coinbase CSV transaction exports
-* match trades using FIFO
-* calculate profit and loss
-* classify taxable vs tax-free transactions
-* export detailed reports
-
-The goal is to create a simple, transparent crypto transaction analyzer that can be extended later with additional exchanges and features.
-
----
-
-## Features
-
-* Coinbase CSV transaction parsing
-* FIFO trade matching engine
-* Profit / loss calculation
-* Taxable vs tax-free classification
-* Staking / reward detection
-* Report generation
-* CSV exports
-* Pytest test suite
-
----
-
-## Project Structure
-
-```
-bitcoin-fifo-tax-tool
-│
-├─ btc_tool
-│   ├─ engine
-│   │   ├─ fifo.py
-│   │   └─ staking.py
-│   │
-│   ├─ io
-│   │   └─ csv_loader.py
-│   │
-│   ├─ reporting
-│   │   ├─ export_audit_csv.py
-│   │   ├─ export_open_lots_csv.py
-│   │   ├─ export_summary_txt.py
-│   │   └─ tax_report.py
-│   │
-│   ├─ models.py
-│   └─ tax_rules.py
-│
-├─ tests
-│   └─ test_fifo.py
-│
-├─ app.py
-├─ pytest.ini
-└─ README.md
-```
-
----
-
-## Installation
-
-Clone the repository:
-
-```bash
-git clone https://github.com/acekent01/bitcoin-fifo-tax-tool.git
-cd bitcoin-fifo-tax-tool
-```
-
-Optional: create a virtual environment
-
-```bash
-python -m venv venv
-venv\Scripts\activate
-```
-
-Install dependencies if required:
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
 ## Usage
 
-Run with the default CSV file:
+```bash
+python app.py --files data/coinbase.csv data/uphold.csv data/revolut.csv \
+              --price-dir data/prices/
+```
+
+### Multi-exchange support
+
+Pasa uno o varios CSVs con `--files`. El formato se detecta automáticamente:
+- **Coinbase** (exportación estándar y Advanced Trade)
+- **Uphold**
+- **Revolut**
+
+Todos los trades se fusionan y ordenan cronológicamente antes de aplicar FIFO.
+
+### Evitar lotes duplicados al transferir entre exchanges
+
+Si moviste crypto de **Coinbase → Uphold**, el CSV de Coinbase ya contiene el lote de compra original. El CSV de Uphold también tendrá una fila `"in"` (depósito) para esa misma crypto. Cargar ambos CSVs sin ajuste contaría ese lote **dos veces**.
+
+Usa `--skip-uphold-in` para suprimir las filas de depósito de Uphold:
 
 ```bash
-python app.py
+python app.py --files data/coinbase.csv data/uphold.csv \
+              --price-dir data/prices/ \
+              --skip-uphold-in
 ```
 
-Run with a specific Coinbase CSV file:
+Con este flag, cada transacción `"in"` de Uphold se registra como evento especial `skipped_deposit` (visible en el audit trail) pero **no** añade un lote de compra a la cola FIFO.
+
+> **No uses `--skip-uphold-in`** si Uphold es tu único origen de datos, ya que perderías todos tus lotes de compra.
+
+### Datos de precios históricos
+
+Para exchanges que no incluyen precio en EUR (p.ej. Uphold), proporciona CSVs diarios de CoinMarketCap:
 
 ```bash
-python app.py --file data/coinbase.csv
+# Directorio completo (ficheros nombrados *_ASSET.csv)
+python app.py --files data/uphold.csv --price-dir data/prices/
+
+# O ficheros individuales
+python app.py --files data/uphold.csv --prices data/prices/btc.csv data/prices/eth.csv
 ```
-
----
-
-## Running Tests
-
-Run the test suite with:
-
-```bash
-pytest
-```
-
----
-
-## Output
-
-The tool generates reports inside:
-
-```
-outputs/
-```
-
-Generated files:
-
-```
-audit.csv
-open_lots.csv
-summary.txt
-```
-
-These reports include:
-
-* matched buy/sell trades
-* profit and loss calculations
-* open positions
-* summarized results
-
----
-
-## Example Workflow
-
-1. Export your transaction history from Coinbase as CSV
-2. Place the file inside the `data/` directory
-3. Run:
-
-```bash
-python app.py --file data/coinbase.csv
-```
-
-4. Review the generated reports in the `outputs/` folder
-
----
-
-## Status
-
-Work in progress.
-
-Planned improvements:
-
-* multi-asset support
-* better staking handling
-* additional exchange formats
-* improved tax classification
-* decimal precision improvements
-
----
-
-## Disclaimer
-
-This project is for educational purposes only.
-
-It does **not** provide financial or tax advice.
-Always consult a professional tax advisor for official reporting.
