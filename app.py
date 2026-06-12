@@ -51,6 +51,16 @@ def main():
     )
 
     parser.add_argument(
+        "--year",
+        type=int,
+        default=None,
+        help=(
+            "Filter the tax report to a specific fiscal year (e.g. --year 2025). "
+            "All data is still processed for correct FIFO inventory."
+        ),
+    )
+
+    parser.add_argument(
         "--no-export",
         action="store_true",
         help="Do not write output files",
@@ -120,12 +130,23 @@ def main():
         f"{len(args.files)} file(s) — ready for FIFO\n"
     )
 
-    # ── FIFO calculation ─────────────────────────────────────────────────────
-    total_profit, matches, open_lots = calculate_fifo(all_trades)
+    # ── FIFO calculation (always uses ALL trades for correct inventory) ───────
+    _, all_matches, open_lots = calculate_fifo(all_trades)
+
+    # ── Filter matches to report year if requested ────────────────────────────
+    report_year = args.year
+    if report_year:
+        matches = [m for m in all_matches if m.sell_date.year == report_year]
+        year_label = str(report_year)
+    else:
+        matches = all_matches
+        year_label = "all years"
+
     tax_report = build_tax_report(matches)
     special_summary = summarize_special_events(all_special_events)
     tx_type_summary = summarize_transaction_types(all_raw_rows) if all_raw_rows else {}
 
+    total_profit = sum(m.profit for m in matches)
     taxable_profit = sum(m.profit for m in matches if m.tax_status == "taxable")
     tax_free_profit = sum(m.profit for m in matches if m.tax_status == "tax_free")
 
@@ -133,11 +154,14 @@ def main():
     lines = []
     lines.append("=" * 50)
     lines.append("BITCOIN TOOL - FIFO REPORT")
+    if report_year:
+        lines.append(f"Fiscal year: {report_year}")
     lines.append("=" * 50)
     lines.append("")
     lines.append(f"CSV Rows Total: {total_raw_count}")
     lines.append(f"Processed Buy/Sell Trades: {len(all_trades)}")
     lines.append(f"Special Events Found: {len(all_special_events)}")
+    lines.append(f"Matches in report ({year_label}): {len(matches)}")
     lines.append("")
     lines.append("TRANSACTION TYPES FOUND")
     lines.append("-" * 50)
@@ -149,7 +173,7 @@ def main():
         lines.append("No transaction type summary available.")
 
     lines.append("")
-    lines.append(f"Total Profit: {total_profit:.2f}")
+    lines.append(f"Total Profit ({year_label}): {total_profit:.2f}")
     lines.append(f"Taxable Profit: {taxable_profit:.2f}")
     lines.append(f"Tax Free Profit: {tax_free_profit:.2f}")
     lines.append("")
@@ -182,13 +206,14 @@ def main():
         lines.append("No special events.")
 
     lines.append("")
-    lines.append("MATCHES")
+    lines.append(f"MATCHES ({year_label})")
     lines.append("-" * 50)
 
     if matches:
         for match in matches:
             lines.append(
                 f"Sell Date: {match.sell_date.date()} | "
+                f"Asset: {match.asset} | "
                 f"Sold: {match.sell_amount:.8f} | "
                 f"Buy Price: {match.buy_price:.2f} | "
                 f"Sell Price: {match.sell_price:.2f} | "
@@ -224,14 +249,20 @@ def main():
         output_dir = Path("outputs")
         output_dir.mkdir(exist_ok=True)
 
+        year_suffix = f"_{report_year}" if report_year else ""
+
         summary_file = export_summary_txt(
             total_profit=total_profit,
             matches=matches,
             open_lots=open_lots,
-            out_path=output_dir / "summary.txt",
+            out_path=output_dir / f"summary{year_suffix}.txt",
         )
-        audit_file = export_audit_csv(matches, output_dir / "audit.csv")
-        open_lots_file = export_open_lots_csv(open_lots, output_dir / "open_lots.csv")
+        audit_file = export_audit_csv(
+            matches, output_dir / f"audit{year_suffix}.csv"
+        )
+        open_lots_file = export_open_lots_csv(
+            open_lots, output_dir / "open_lots.csv"
+        )
 
         print(f"Audit CSV saved to: {audit_file}")
         print(f"Open Lots CSV saved to: {open_lots_file}")
